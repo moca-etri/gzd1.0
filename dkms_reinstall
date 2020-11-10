@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the
+# Free Software Foundation, Inc.
+# 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+
+# © Copyright 2016 Hewlett Packard Enterprise Development LP
+
+mod=$1
+ver=$2
+
+sudo modprobe -r $mod-en $mod-stor $mod-core
+sudo dkms remove -m $mod -v $ver --all
+sudo dkms add -m $mod -v $ver
+sudo dkms build -m $mod -v $ver
+sudo dkms install -m $mod -v $ver --force
+FILE=/var/lib/dkms/gzd/5.0/build/make.log
+if test -f "$FILE";then
+	cat $FILE
+#else
+#	bash ./modprobe.sh
+#	lsmod | grep gzd
+fi

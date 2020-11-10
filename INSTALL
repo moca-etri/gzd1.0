@@ -1,0 +1,135 @@
+Note: In all of the following, <version> refers to the specific gzd
+driver version being installed, for example, 0.1.
+
+To install:
+
+1. Unpack the compressed tarball:
+
+   tar xf gzd-<version>.tgz
+
+2. Create a DKMS symlink to the sources just unpacked:
+
+   sudo ln -s $PWD/gzd-<version> /usr/src/gzd-<version>
+
+3. Update kernel and packages:
+
+   For Debian-based distributions (e.g., Ubuntu):
+
+   sudo apt-get update
+   sudo apt-get dist-upgrade
+
+   For RHEL/CentOS/Fedora:
+
+   sudo yum update
+
+   For any distro, if a new kernel was installed:
+
+   sudo reboot
+
+4. Install build dependencies:
+
+   For Debian-based distributions (e.g., Ubuntu):
+
+   sudo apt-get install build-essential dkms linux-headers-<ARCH>
+
+   For RHEL 6/CentOS 6, add EPEL yum repository:
+
+   sudo rpm -Uvh http://ftp.jaist.ac.jp/pub/Linux/Fedora/epel/6/x86_64/e/epel-release-6-8.noarch.rpm
+
+   For RHEL 7/CentOS 7, add EPEL yum repository:
+
+   sudo rpm -Uvh http://ftp.jaist.ac.jp/pub/Linux/Fedora/epel/7/x86_64/e/epel-release-7-5.noarch.rpm
+
+   For all RPM-based distributions (e.g., RHEL, CentOS, Fedora):
+
+   sudo yum install gcc binutils make patch dkms kernel-headers kernel-devel
+
+5. Build the gzd drivers:
+
+   cd gzd-<version>
+   ./dkms_reinstall gzd <version>
+
+6. Setup module parameters:
+
+   As root, using your favorite text editor, create the file
+   /etc/modprobe.d/gzd.conf with contents similar to this example:
+
+   options gzd-core card_ids=0,1 media_size=8192,8192 genz_subnets=1
+   options gzd-stor bdev_percent=75 num_bdevs=2 num_cdevs=4
+
+   Note that the capabilities of the FPGA bitstream and driver versions
+   installed, as well as your specific card topology, will determine what
+   options you need. For example, a single card exposing a smaller media
+   size to a driver that does not yet have block I/O support might need:
+
+   options gzd-core card_ids=0 media_size=2048 genz_subnets=1
+   options gzd-stor bdev_percent=0 num_bdevs=0 num_cdevs=4
+
+   See the README file for a description all the module parameters
+   and supported topologies.
+
+7. Manually load the modules:
+
+   modprobe -a gzd-stor gzd-en
+
+   If you are only interested in using one or the other driver, load
+   only that one.  You do not have to explicitly load gzd-core - it
+   will be loaded automatically.
+
+   If you choose not to do step 8 below, then this step of manually loading
+   the modules must be repeated on every boot of the system.
+
+   If you wish to verify that the module parameters specified in step
+   5 are in effect, do this:
+
+   for mod in gzd_core gzd_stor; do echo $mod:; \
+   for param in $(ls /sys/module/$mod/parameters); do \
+   echo "  $param: $(cat /sys/module/$mod/parameters/$param)"; done; done
+
+8. Setup boot-time auto-loading of gzd-stor and gzd-en, if desired:
+
+   As stated in step 7, the gzd-stor and gzd-en modules must be
+   manually loaded on every boot of the system.  To make this loading
+   automatic:
+
+   As root, using your favorite text editor, add either or both of the
+   following two lines to /etc/modules:
+
+   gzd-stor
+   gzd-en
+
+   However, if your topology includes linked cards in two or more
+   systems, then you cannot enable auto-loading of gzd-stor and
+   gzd-en.  This is because doing so would cause the drivers on
+   whichever system is booted first, to attempt to access the media
+   and messaging on the card in the second system before the gzd-core
+   driver has had a chance to configure that card.
+
+9. Examine the gzd-core sysfs entries, gzd-stor device files, and gzd-en
+   network interface, if desired:
+
+   sudo find /sys -name "gz*"
+   sudo find /dev -name "gz*"
+   ip link show gzd0
+
+   for file in $(ls /sys/devices/pci0000:00/0000:00:03.0/0000:08:00.0/gzd-core); do \
+   echo $file: $(cat /sys/devices/pci0000:00/0000:00:03.0/0000:08:00.0/gzd-core/$file); done
+
+   Note: Your PCI device path may differ, depending on what slot your
+   card is in, and if you have more than one card, there will be
+   additional device paths and additional network interfaces, gzd1, etc.
+
+   Write some zero data to one of the device files:
+
+   sudo dd if=/dev/zero of=/dev/gzc0_0_0 bs=1M count=1
+
+A. Compile and run the mmap test program:
+
+   cd test
+   cc -O -o mmap mmap.c
+
+   Do some reads and writes:
+
+   sudo ./mmap -p -t -s 256 gzc0_0_0
+
+   Use "./mmap -?" for a usage message.

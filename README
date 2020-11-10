@@ -1,0 +1,190 @@
+To build and install the gzd drivers, refer to the INSTALL file.
+
+Drivers
+=======
+
+There are 3 gzd drivers that work together to provide byte-addressable
+load/store access to media, block-device access to media, and Ethernet
+messaging over Gen-Z:
+
+  gzd-core    Binds to the Gen-Z PCIe card and provides services
+              to the other dependent drivers.  Recognizes both the AlphaData
+              bitstream (1590:020b) and Bittware bitstream (1590:0279).
+
+  gzd-stor    Provides both byte-addressable load/store access and block
+              storage access to local and remote Gen-Z media.
+
+              Load/store access is via the mmap() system call to a set
+              of character device files (cdevs) named /dev/gzcC_M_D,
+              where C is the card_id, M is the media_id, and D is the
+              cdev number. The cdevs also support read(), write(), and
+              lseek() system calls, which enable standard utilities
+              (e.g., echo, cat, dd) to operate on them for
+              initialization, backup, etc.
+
+              Block access is via standard Linux block-device
+              interfaces using block device files (bdevs) named
+              /dev/gzbC_M_D (C, M, and D as described above).  Each
+              block device is partitionable, with up to 15 partitions,
+              and they support Direct Access Extensions (DAX).
+
+  gzd-en      Provides Ethernet messaging over Gen-Z.  The network devices
+              are named gzdN, where N starts at 0 and increases, one per
+              card.
+
+Driver Parameters
+=================
+
+In their current form, these drivers must be statically configured to
+understand the Gen-Z topology, media sizes, and desired media
+allocation.  This is done using module parameters at driver load time.
+
+The driver parameters are:
+
+gzd-core
+  card_ids      Comma-separated list of card_ids. Cards local to this system
+                must be listed before those of remote systems.  For example,
+                two cards in two systems, linked together, would be listed
+                as 0,1 on one system and 1,0 on the other.
+
+  media_size    Comma-separated list of media sizes, in mebibytes (MiB),
+                for each card.  Must be in the same order as the card_ids.
+
+  genz_subnets  Number of Gen-Z subnets in the configuration.  If two cards
+                aren't linked, they are, by definition, in separate subnets.
+                The default value of 1 is almost always correct.
+
+  zlink_masks   Comma-separated list of 6-bit masks of enabled Zlinks, one
+                per card installed in the local system.  Bits 0 & 1,
+                corresponding to Media Responders 0 & 1, must always be 1.
+                Defaults to 0x7 on AlphaData cards and 0x3F on Bittware.
+
+  dma_mask      (obsolete) The default value of 64 is always correct.
+
+  red_green     (obsolete) The default value of 0 is always correct.
+
+  fpga_rev_check (debug) With the default value (1), the driver will check
+                 that the FPGA and driver revisions are compatible.
+
+  msg_test      (debug) If 1, the gzd-core/msg* files in sysfs can be used
+                to send/recv Gen-Z messages, but in the mode, gzd-en will
+                not work.
+
+  msg_intr_udelay (debug) If msg_test=1, adds the specified number of usecs
+                  to the msg interrupt handler.
+
+  poll_interval  (debug) Sets the link-polling thread poll interval, in
+                 msecs.  Default: 500.
+
+  recv_buf_size  (debug) Size of the msg recv buffer, which is allocated by
+                 gzd-core, and used by gzd-en.  Default: 2M.
+
+gzd-stor
+  bdev_percent  Percent of media size to allocate for block devs (bdevs).
+                Remainder is allocated to char devs (cdevs).
+                Default is 50%.
+
+  num_bdevs     Number of bdevs to create for each media.  Each will
+                be allocated 1/Nth of the bdev space. Default is 1.
+
+  num_cdevs     Number of cdevs to create for each media.  Each will
+                be allocated 1/Nth of the cdev space. Default is 1.
+
+  zero_bdevs    Comma-separated list, one per media.  When 1, zeros all
+                bdevs on that media at module load time, before
+                presenting them to the kernel block subsystem.
+                Default is 0.
+
+gzd-en
+  loopback      (debug) Configures the card to send all messages back to
+                itself, instead of over the link to another card.  Not
+                supported by all FPGA bitstreams.
+
+  tx_intr_udelay (debug) Adds the specified number of usecs to the msg
+                 transmit interrupt handler.
+
+  tx_wake_thresh (debug) Sets the minimum required number of free transmit
+                 FIFO entries before re-enabling transmit.  Default: 10.
+
+Supported Topologies
+====================
+
+These parameters can be used to support any of the following 5 Gen-Z
+topologies:
+
+1. Bring-up 1
+   1 system, 1 card, 1 media, 0 links
+
+    Sys A
+   +-------+
+   |card 0 |
+   |       |
+   +-------+
+
+   Sys A: card_ids=0
+          media_size=8192
+          genz_subnets=1
+          loopback=1
+
+2. Bring-up 2
+   1 system, 2 cards, 2 media, 0 links
+
+    Sys A
+   +-------+
+   |card 0 |
+   |card 1 |
+   +-------+
+
+   Sys A: card_ids=0,1
+          media_size=8192,8192
+          genz_subnets=2
+          loopback=1
+
+3. Demo Config
+   2 systems, 1 card in each, 2 media, 1 link
+
+    Sys A              Sys B
+   +-------+          +-------+
+   |card 0 |==========|card 1 |
+   |       |          |       |
+   +-------+          +-------+
+
+   Sys A: card_ids=0,1
+          media_size=8192,8192
+          genz_subnets=1
+
+   Sys B: card_ids=1,0
+          media_size=8192,8192
+          genz_subnets=1
+
+   Note that the card_ids on the two systems must be listed in opposite order.
+
+4. Alternate Demo Config
+   1 system, 2 cards, 2 media, 1 link
+
+    Sys A
+   +-------+
+   |card 0 |======+
+   |card 1 |======+
+   +-------+
+
+   Sys A: card_ids=0,1
+          media_size=8192,8192
+          genz_subnets=1
+
+5. Aspirational
+   2 systems, 2 cards in each, 4 media, 2 links between systems
+
+    Sys A              Sys B
+   +-------+          +-------+
+   |card 0 |==========|card 2 |
+   |card 1 |==========|card 3 |
+   +-------+          +-------+
+
+   Sys A: card_ids=0,1,2,3
+          media_size=8192,8192,8192,8192
+          genz_subnets=2
+
+   Sys B: card_ids=2,3,0,1
+          media_size=8192,8192,8192,8192
+          genz_subnets=2
